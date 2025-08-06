@@ -108,41 +108,40 @@ export default function App() {
             
             // --- ACCURACY IMPROVEMENT: Multi-layered Post Title Finding ---
             const findTitle = (doc) => {
-                // Priority 1: Use keywords as suggested. Find a heading that contains job-related terms.
+                // Priority 1: Use keywords as suggested.
                 const keywords = ['post', 'jobs', 'vacancy', 'recruitment', 'apply now'];
                 const allHeadings = doc.querySelectorAll('h1, h2');
                 for (const heading of allHeadings) {
                     const headingText = heading.innerText.toLowerCase();
-                    // Check for keywords and a reasonable length to avoid generic list titles like "Jobs".
                     if (keywords.some(keyword => headingText.includes(keyword)) && headingText.length > 15) {
-                        return heading.innerText.trim(); // Found a good title based on keywords
+                        return heading.innerText.trim();
                     }
                 }
 
-                // Priority 2: If no keyword match, use reliable structural selectors.
+                // Priority 2: Use reliable structural selectors, including your specific suggestion.
                 const structuralSelectors = [
+                    'h1.entry-title', 'h2.entry-title',   // Added your specific suggestion with high priority
+                    'h1.post-title', 'h2.post-title',
                     'article h1', 'main h1', '.entry-content h1',
                     'article h2', 'main h2', '.entry-content h2',
-                    '.entry-title', '.post-title'
+                    '.entry-title', '.post-title'         // General class selector as a fallback
                 ];
                 for (const selector of structuralSelectors) {
                     const element = doc.querySelector(selector);
                     if (element) {
                         const titleText = element.innerText.trim();
-                        // Simple check to avoid overly generic one-word titles like "Jobs" or "News"
                         if (titleText.includes(' ')) {
                             return titleText;
                         }
                     }
                 }
 
-                // Priority 3 (Fallback): Return the text of the first H1 on the page.
+                // Priority 3 (Fallback): Return the text of the first H1.
                 const firstH1 = doc.querySelector('h1');
                 if (firstH1) {
                     return firstH1.innerText.trim();
                 }
 
-                // If all else fails
                 return 'Post Title Not Found';
             };
 
