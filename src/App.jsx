@@ -71,23 +71,42 @@ export default function App() {
       });
       const uniqueLinks = Array.from(postLinks);
       if (uniqueLinks.length === 0) throw new Error('Could not find any potential job post links.');
+
+      // --- START OF BUG FIX ---
+      // This section was rewritten to correctly associate links with their content.
       setStatus(`Step 2/3: Analyzing ${uniqueLinks.length} found links...`);
-      const promises = uniqueLinks.map(postUrl => fetchHtml(postUrl).catch(e => { console.warn(`Could not fetch ${postUrl}: ${e.message}`); return null; }));
-      const postHtmls = await Promise.all(promises);
-      const validHtmls = postHtmls.filter(html => html !== null);
-      setStatus(`Step 3/3: Extracting deadlines from ${validHtmls.length} pages...`);
+      const promises = uniqueLinks.map(link =>
+        fetchHtml(link)
+          .then(html => ({ url: link, html })) // Pair the URL with its HTML
+          .catch(e => {
+            console.warn(`Could not fetch ${link}: ${e.message}`);
+            return { url: link, html: null }; // Keep the pair, but mark HTML as null on failure
+          })
+      );
+
+      const results = await Promise.all(promises);
+      const validResults = results.filter(result => result.html !== null);
+      // --- END OF BUG FIX ---
+      
+      setStatus(`Step 3/3: Extracting deadlines from ${validResults.length} pages...`);
       const foundJobs = [];
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      validHtmls.forEach((postHtml, index) => {
+      
+      // --- START OF BUG FIX ---
+      // Now we loop through the valid results, each containing the correct URL and HTML.
+      validResults.forEach(result => {
+        const { url: postUrl, html: postHtml } = result; // Use the correctly paired URL and HTML
         const postParser = new DOMParser();
         const postDoc = postParser.parseFromString(postHtml, 'text/html');
-        const postUrl = uniqueLinks[index];
+        // --- END OF BUG FIX ---
+        
         const titleElement = postDoc.querySelector('h1, .entry-title');
         const title = titleElement ? titleElement.innerText.trim() : 'Title not found';
         const bodyText = postDoc.body.innerText;
         const deadlineRegex = /(?:last\s+date|closing\s+date|deadline)[\s\S]*?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i;
         const match = bodyText.match(deadlineRegex);
+
         if (match && match[1]) {
           const lastDate = parseDate(match[1]);
           if (lastDate && lastDate >= today) {
@@ -97,6 +116,7 @@ export default function App() {
           }
         }
       });
+
       if (foundJobs.length === 0) {
         setError('Scan complete. No jobs with future deadlines were found.');
       } else {
