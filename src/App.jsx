@@ -57,6 +57,14 @@ export default function App() {
             setError('Please enter a website URL.');
             return;
         }
+
+        // --- NEW: URL CORRECTION LOGIC ---
+        let correctedUrl = url.trim();
+        if (!correctedUrl.startsWith('http://') && !correctedUrl.startsWith('https://')) {
+            correctedUrl = `https://${correctedUrl}`;
+        }
+        // --- END OF URL CORRECTION ---
+
         setIsLoading(true);
         setError('');
         setJobs([]);
@@ -65,7 +73,7 @@ export default function App() {
 
         try {
             setStatus('Step 1/3: Fetching main page to find job links...');
-            const mainHtml = await fetchHtml(url);
+            const mainHtml = await fetchHtml(correctedUrl); // Use corrected URL
             if (!mainHtml) throw new Error('Could not fetch the main page content.');
             const parser = new DOMParser();
             const mainDoc = parser.parseFromString(mainHtml, 'text/html');
@@ -74,9 +82,9 @@ export default function App() {
             mainDoc.querySelectorAll('article a, .post a, .job-listing a, h2 a, h3 a').forEach(link => {
                 let href = link.href;
                 if (href && !href.startsWith('http')) {
-                    try { href = new URL(href, url).href; } catch (e) { return; }
+                    try { href = new URL(href, correctedUrl).href; } catch (e) { return; } // Use corrected URL
                 }
-                if (href && href.startsWith(new URL(url).origin)) {
+                if (href && href.startsWith(new URL(correctedUrl).origin)) { // Use corrected URL
                     const linkText = link.innerText.toLowerCase();
                     const linkUrl = href.toLowerCase();
                     if (jobUrlKeywords.some(keyword => linkUrl.includes(keyword) || linkText.includes(keyword))) {
@@ -106,42 +114,21 @@ export default function App() {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             
-            // --- ACCURACY IMPROVEMENT: Multi-layered Post Title Finding ---
             const findTitle = (doc) => {
-                // Priority 1: Use keywords as suggested.
-                const keywords = ['post', 'jobs', 'vacancy', 'recruitment', 'apply now'];
-                const allHeadings = doc.querySelectorAll('h1, h2');
-                for (const heading of allHeadings) {
-                    const headingText = heading.innerText.toLowerCase();
-                    if (keywords.some(keyword => headingText.includes(keyword)) && headingText.length > 15) {
-                        return heading.innerText.trim();
-                    }
-                }
-
-                // Priority 2: Use reliable structural selectors, including your specific suggestion.
                 const structuralSelectors = [
-                    'h1.entry-title', 'h2.entry-title',   // Added your specific suggestion with high priority
-                    'h1.post-title', 'h2.post-title',
-                    'article h1', 'main h1', '.entry-content h1',
-                    'article h2', 'main h2', '.entry-content h2',
-                    '.entry-title', '.post-title'         // General class selector as a fallback
+                    'h1.entry-title', 'h2.entry-title', 'h1.post-title', 'h2.post-title',
+                    'article h1', 'main h1', '.entry-content h1', 'article h2', 'main h2', 
+                    '.entry-content h2', '.entry-title', '.post-title'
                 ];
                 for (const selector of structuralSelectors) {
                     const element = doc.querySelector(selector);
                     if (element) {
                         const titleText = element.innerText.trim();
-                        if (titleText.includes(' ')) {
-                            return titleText;
-                        }
+                        if (titleText.includes(' ')) return titleText;
                     }
                 }
-
-                // Priority 3 (Fallback): Return the text of the first H1.
                 const firstH1 = doc.querySelector('h1');
-                if (firstH1) {
-                    return firstH1.innerText.trim();
-                }
-
+                if (firstH1) return firstH1.innerText.trim();
                 return 'Post Title Not Found';
             };
 
@@ -160,11 +147,8 @@ export default function App() {
                     let score = 0;
                     const lowerBodyText = bodyText.toLowerCase();
                     jobKeywords.forEach(keyword => {
-                        if (lowerBodyText.includes(keyword)) {
-                            score++;
-                        }
+                        if (lowerBodyText.includes(keyword)) score++;
                     });
-
                     if (score >= 2) {
                         const lastDate = parseDate(match[1].trim());
                         if (lastDate && lastDate >= today) {
@@ -192,20 +176,26 @@ export default function App() {
         }
     };
 
+    // --- NEW: Helper function for formatted share text with emojis and bolding ---
+    const generateShareText = (job) => {
+        // Use asterisks for bolding in WhatsApp
+        return `📄 *Post name:* ${job.title}\n\n📅 *Last date:* ${job.lastDate.toLocaleDateString('en-GB')}\n\n🔗 *Apply Link:*\n${job.link}`;
+    };
+
     const getWhatsAppLink = (job) => {
-        const text = `Post: ${job.title}\nLast date: ${job.lastDate.toLocaleDateString('en-GB')}\nApply Now: ${job.link}`;
+        const text = generateShareText(job);
         return `https://wa.me/?text=${encodeURIComponent(text)}`;
     };
 
     const handleCopy = (job) => {
-        const text = `Post: ${job.title}\nLast date: ${job.lastDate.toLocaleDateString('en-GB')}\nApply Now: ${job.link}`;
+        const text = generateShareText(job); // Use the same formatted text for copying
         navigator.clipboard.writeText(text);
         setCopiedJob(job.link);
         setTimeout(() => setCopiedJob(null), 2000);
     };
     
     const handleNativeShare = (job) => {
-        const text = `Post: ${job.title}\nLast date: ${job.lastDate.toLocaleDateString('en-GB')}\nApply Now: ${job.link}`;
+        const text = generateShareText(job); // And for native sharing
         if (navigator.share) {
             navigator.share({ title: job.title, text: text, url: job.link });
         } else {
@@ -224,7 +214,7 @@ export default function App() {
                     <p className="text-gray-500 mt-2">Enter a website to find all upcoming job deadlines.</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                    <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/careers" className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
+                    <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="newgovtjobalert.com" className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
                     <button onClick={handleFetchJobs} disabled={isLoading} className="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed transition shadow-md hover:shadow-lg">
                         {isLoading ? 'Crawling...' : 'Start Scan'}
                     </button>
