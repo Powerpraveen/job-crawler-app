@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-// Advanced Date Parsing
+// Advanced Date Parsing (No changes needed here)
 const parseDate = (dateString) => {
     if (!dateString) return null;
     const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
@@ -29,6 +29,7 @@ const parseDate = (dateString) => {
     return null;
 };
 
+
 const JOBS_PER_PAGE = 10;
 
 // Main App Component
@@ -40,6 +41,8 @@ export default function App() {
     const [copiedJob, setCopiedJob] = useState(null);
     const [status, setStatus] = useState('');
     const [page, setPage] = useState(1);
+    // --- NEW: State for the optional last date filter ---
+    const [filterDate, setFilterDate] = useState('');
 
     const totalPages = Math.ceil(jobs.length / JOBS_PER_PAGE);
     const jobsToShow = jobs.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE);
@@ -57,14 +60,10 @@ export default function App() {
             setError('Please enter a website URL.');
             return;
         }
-
-        // --- NEW: URL CORRECTION LOGIC ---
         let correctedUrl = url.trim();
         if (!correctedUrl.startsWith('http://') && !correctedUrl.startsWith('https://')) {
             correctedUrl = `https://${correctedUrl}`;
         }
-        // --- END OF URL CORRECTION ---
-
         setIsLoading(true);
         setError('');
         setJobs([]);
@@ -73,7 +72,7 @@ export default function App() {
 
         try {
             setStatus('Step 1/3: Fetching main page to find job links...');
-            const mainHtml = await fetchHtml(correctedUrl); // Use corrected URL
+            const mainHtml = await fetchHtml(correctedUrl);
             if (!mainHtml) throw new Error('Could not fetch the main page content.');
             const parser = new DOMParser();
             const mainDoc = parser.parseFromString(mainHtml, 'text/html');
@@ -82,9 +81,9 @@ export default function App() {
             mainDoc.querySelectorAll('article a, .post a, .job-listing a, h2 a, h3 a').forEach(link => {
                 let href = link.href;
                 if (href && !href.startsWith('http')) {
-                    try { href = new URL(href, correctedUrl).href; } catch (e) { return; } // Use corrected URL
+                    try { href = new URL(href, correctedUrl).href; } catch (e) { return; }
                 }
-                if (href && href.startsWith(new URL(correctedUrl).origin)) { // Use corrected URL
+                if (href && href.startsWith(new URL(correctedUrl).origin)) {
                     const linkText = link.innerText.toLowerCase();
                     const linkUrl = href.toLowerCase();
                     if (jobUrlKeywords.some(keyword => linkUrl.includes(keyword) || linkText.includes(keyword))) {
@@ -108,16 +107,16 @@ export default function App() {
 
             const results = await Promise.all(promises);
             const validResults = results.filter(result => result.html !== null);
-            
+           
             setStatus(`Step 3/3: Verifying posts and extracting deadlines...`);
             const foundJobs = [];
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            
+           
             const findTitle = (doc) => {
                 const structuralSelectors = [
                     'h1.entry-title', 'h2.entry-title', 'h1.post-title', 'h2.post-title',
-                    'article h1', 'main h1', '.entry-content h1', 'article h2', 'main h2', 
+                    'article h1', 'main h1', '.entry-content h1', 'article h2', 'main h2',
                     '.entry-content h2', '.entry-title', '.post-title'
                 ];
                 for (const selector of structuralSelectors) {
@@ -136,7 +135,7 @@ export default function App() {
                 const { url: postUrl, html: postHtml } = result;
                 const postParser = new DOMParser();
                 const postDoc = postParser.parseFromString(postHtml, 'text/html');
-                
+               
                 const title = findTitle(postDoc);
                 const bodyText = postDoc.body.innerText;
                 const deadlineRegex = /(?:last date|closing date|deadline|apply by|applications close|submit by)[\s:.-]*([\w\s,./-]+\d{1,4})/i;
@@ -160,10 +159,19 @@ export default function App() {
                 }
             });
 
-            if (foundJobs.length === 0) {
-                setError('Scan complete. No jobs with future deadlines were found.');
+            // --- NEW: Filter jobs based on the selected date before setting state ---
+            let finalJobs = foundJobs;
+            if (filterDate) {
+                const selectedFilterDate = new Date(filterDate);
+                // Set time to end of day to include jobs with the same last date
+                selectedFilterDate.setUTCHours(23, 59, 59, 999); 
+                finalJobs = foundJobs.filter(job => job.lastDate <= selectedFilterDate);
+            }
+
+            if (finalJobs.length === 0) {
+                setError('Scan complete. No jobs with future deadlines were found that match your criteria.');
             } else {
-                const sortedJobs = foundJobs.sort((a, b) => a.lastDate - b.lastDate);
+                const sortedJobs = finalJobs.sort((a, b) => a.lastDate - b.lastDate);
                 setJobs(sortedJobs);
                 setPage(1);
             }
@@ -176,9 +184,8 @@ export default function App() {
         }
     };
 
-    // --- NEW: Helper function for formatted share text with emojis and bolding ---
+    // --- No changes needed in helper functions below ---
     const generateShareText = (job) => {
-        // Use asterisks for bolding in WhatsApp
         return `📄 *Post name:* ${job.title}\n\n📅 *Last date:* ${job.lastDate.toLocaleDateString('en-GB')}\n\n🔗 *Apply Link:*\n${job.link}`;
     };
 
@@ -188,14 +195,14 @@ export default function App() {
     };
 
     const handleCopy = (job) => {
-        const text = generateShareText(job); // Use the same formatted text for copying
+        const text = generateShareText(job);
         navigator.clipboard.writeText(text);
         setCopiedJob(job.link);
         setTimeout(() => setCopiedJob(null), 2000);
     };
-    
+   
     const handleNativeShare = (job) => {
-        const text = generateShareText(job); // And for native sharing
+        const text = generateShareText(job);
         if (navigator.share) {
             navigator.share({ title: job.title, text: text, url: job.link });
         } else {
@@ -213,14 +220,23 @@ export default function App() {
                     <h1 className="text-3xl md:text-4xl font-bold text-gray-800">Job Deadline Crawler</h1>
                     <p className="text-gray-500 mt-2">Enter a website to find all upcoming job deadlines.</p>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                    <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="newgovtjobalert.com" className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
-                    <button onClick={handleFetchJobs} disabled={isLoading} className="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed transition shadow-md hover:shadow-lg">
+                {/* --- MODIFIED: Input section to include date picker --- */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+                     <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="newgovtjobalert.com" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
+                     <div>
+                        <label htmlFor="filter-date" className="text-sm font-medium text-gray-600">Optional: Find jobs with deadline on or before</label>
+                        <input id="filter-date" type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" />
+                     </div>
+                </div>
+                <div className="flex justify-end mb-4">
+                     <button onClick={handleFetchJobs} disabled={isLoading} className="w-full sm:w-auto bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed transition shadow-md hover:shadow-lg">
                         {isLoading ? 'Crawling...' : 'Start Scan'}
                     </button>
                 </div>
+
                 {isLoading && <div className="text-center p-4"><div className="flex justify-center items-center mb-3"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div><p className="text-indigo-600 font-semibold">{status}</p></div>}
                 {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg text-center" role="alert"><p>{error}</p></div>}
+                
                 {jobs.length > 0 && (
                     <div className="mt-8">
                         <h2 className="text-2xl font-bold text-gray-700 mb-4 border-b pb-2">Upcoming Deadlines Found</h2>
