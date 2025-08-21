@@ -160,29 +160,37 @@ export default function App() {
             });
 
             // --- NEW: Filter jobs based on the selected date before setting state ---
+            // --- NEW: Smart filter with fallback for nearest date ---
             let finalJobs = foundJobs;
             if (filterDate) {
-                const selectedFilterDate = new Date(filterDate);
-                // Set time to end of day to include jobs with the same last date
-                selectedFilterDate.setUTCHours(23, 59, 59, 999); 
-                finalJobs = foundJobs.filter(job => job.lastDate <= selectedFilterDate);
-            }
+                // Step 1: First, try to find an exact match for the selected date.
+                const exactMatchJobs = foundJobs.filter(job => {
+                    const jobDateString = job.lastDate.toISOString().split('T')[0];
+                    return jobDateString === filterDate;
+                });
 
-            if (finalJobs.length === 0) {
-                setError('Scan complete. No jobs with future deadlines were found that match your criteria.');
-            } else {
-                const sortedJobs = finalJobs.sort((a, b) => a.lastDate - b.lastDate);
-                setJobs(sortedJobs);
-                setPage(1);
+                // Step 2: If exact matches are found, use them.
+                if (exactMatchJobs.length > 0) {
+                    finalJobs = exactMatchJobs;
+                } else {
+                    // Step 3: If no exact match, find the nearest available date BEFORE the selected one.
+                    const selectedDate = new Date(filterDate);
+                    
+                    // Get all jobs with deadlines on or before the selected date.
+                    const candidateJobs = foundJobs.filter(job => job.lastDate <= selectedDate);
+
+                    if (candidateJobs.length > 0) {
+                        // Find the latest date among these candidates by sorting descending.
+                        const nearestDate = candidateJobs.sort((a, b) => b.lastDate - a.lastDate)[0].lastDate;
+                        
+                        // Now, get all jobs that match this single "nearest" date.
+                        finalJobs = candidateJobs.filter(job => job.lastDate.getTime() === nearestDate.getTime());
+                    } else {
+                        // If no jobs exist on or before the selected date, the result is empty.
+                        finalJobs = [];
+                    }
+                }
             }
-        } catch (err) {
-            console.error('Operation failed:', err);
-            setError(`An error occurred: ${err.message}`);
-        } finally {
-            setIsLoading(false);
-            setStatus('');
-        }
-    };
 
     // --- No changes needed in helper functions below ---
     const generateShareText = (job) => {
@@ -263,3 +271,4 @@ export default function App() {
         </div>
     );
 }
+
