@@ -93,6 +93,11 @@ const crawlerReducer = (state, action) => {
                 isLoading: false,
                 status: '',
             };
+        case 'CLEAR_ERROR':
+            return {
+                ...state,
+                error: '',
+            };
         case 'SET_PAGE':
             return {
                 ...state,
@@ -134,7 +139,9 @@ const useJobCrawler = () => {
     });
 
     /**
-     * Fetches HTML content from a given URL using an API proxy.
+     * Fetches HTML content from a given URL using a proxy.
+     * NOTE: This proxy can be unreliable or blocked by some websites.
+     * If the scan fails, this is a likely cause.
      * @param {string} targetUrl - The URL to fetch.
      * @returns {Promise<string>} The HTML content as a string.
      */
@@ -143,7 +150,12 @@ const useJobCrawler = () => {
         const response = await fetch(fetchUrl);
         if (!response.ok) throw new Error(`Failed to fetch ${targetUrl}`);
         const data = await response.json();
-        return data.contents;
+        // The API returns the content in a 'contents' field.
+        if (data.contents) {
+             return data.contents;
+        } else {
+            throw new Error('Failed to retrieve content from the proxy.');
+        }
     };
 
     /**
@@ -232,10 +244,12 @@ const useJobCrawler = () => {
 
                 const title = findTitle(postDoc);
                 const bodyText = postDoc.body.innerText;
+                // This regex is a heuristic and might fail on unusual date formats.
                 const deadlineRegex = /(?:last date|closing date|deadline|apply by|applications close|submit by)[\s:.-]*([\w\s,./-]+\d{1,4})/i;
                 const match = bodyText.match(deadlineRegex);
 
                 if (match && match[1]) {
+                    // These keywords are a heuristic to filter out non-job articles.
                     const jobKeywords = ['qualification', 'responsibilit', 'experience', 'salary', 'location', 'apply now', 'job type'];
                     let score = 0;
                     const lowerBodyText = bodyText.toLowerCase();
@@ -263,14 +277,16 @@ const useJobCrawler = () => {
             dispatch({ type: 'SET_ERROR', payload: e.message || 'An unexpected error occurred. Please check the URL and try again.' });
         }
     };
+    
+    // New function to clear the error state
+    const dismissError = () => dispatch({ type: 'CLEAR_ERROR' });
 
-    // Corrected action dispatch for setUrl
     const setUrl = (newUrl) => dispatch({ type: 'SET_URL', payload: newUrl });
     const setFilterDate = (newDate) => dispatch({ type: 'SET_FILTER_DATE', payload: newDate });
     const setPage = (newPage) => dispatch({ type: 'SET_PAGE', payload: newPage });
     const toggleSixMonths = (checked) => dispatch({ type: 'TOGGLE_SIX_MONTHS_FILTER', payload: checked });
 
-    return { ...state, setUrl, setFilterDate, setPage, handleFetchJobs, toggleSixMonths };
+    return { ...state, setUrl, setFilterDate, setPage, handleFetchJobs, toggleSixMonths, dismissError };
 };
 
 // --- App Component ---
@@ -278,7 +294,7 @@ const useJobCrawler = () => {
 const JOBS_PER_PAGE = 10;
 
 export default function App() {
-    const { jobs, isLoading, status, error, page, url, filterDate, showNextSixMonths, setUrl, setFilterDate, setPage, handleFetchJobs, toggleSixMonths } = useJobCrawler();
+    const { jobs, isLoading, status, error, page, url, filterDate, showNextSixMonths, setUrl, setFilterDate, setPage, handleFetchJobs, toggleSixMonths, dismissError } = useJobCrawler();
     const [copiedJob, setCopiedJob] = useState(null);
 
     // Apply filters based on user selection
@@ -378,7 +394,7 @@ export default function App() {
                     }
                 `}
             </style>
-            {error && <ErrorModal message={error} onClose={() => setPage(1)} />}
+            {error && <ErrorModal message={error} onClose={dismissError} />}
             <div className="w-full max-w-3xl bg-white rounded-xl shadow-2xl p-6 md:p-8 border border-gray-200">
                 <div className="text-center mb-8">
                     <h1 className="text-3xl md:text-4xl font-extrabold text-gray-800">Job Deadline <span className="text-indigo-600">Crawler</span></h1>
@@ -451,7 +467,7 @@ export default function App() {
                                     </div>
                                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                                         <a href={getWhatsAppLink(job)} target="_blank" rel="noopener noreferrer" className="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-600 transition text-sm flex items-center justify-center" title="Share via WhatsApp">
-                                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.04 2.87c-5.06 0-9.17 4.1-9.17 9.17 0 1.54.4 3.01 1.15 4.34l-1.22 4.47a.97.97 0 001.32 1.32l4.47-1.22c1.33.74 2.8 1.15 4.34 1.15 5.07 0 9.17-4.11 9.17-9.17S17.11 2.87 12.04 2.87zm4.27 12.55l-.26.15a1.11 1.11 0 01-1.12.11 5.92 5.92 0 01-2.92-1.93 7.02 7.02 0 01-1.63-2.61.94.94 0 01.12-1.04l.15-.26c.21-.36.32-.8.32-1.25 0-.46-.11-.9-.32-1.26a.6.6 0 00-.31-.22c-.22-.09-.46-.14-.7-.14-.24 0-.48.05-.7.14a.6.6 0 00-.31.22c-.21.36-.32.8-.32 1.25 0 .46.11.9.32 1.25l.1.18c.24.42.36.9.36 1.4 0 .48-.12.92-.36 1.33-.24.42-.58.74-1.01.99-.42.25-.89.37-1.37.37-.48 0-.9-.12-1.28-.35-.38-.23-.67-.53-.88-.93-.21-.4-.32-.86-.32-1.34 0-.48.11-.93.32-1.34.21-.4.5-.7.88-.93.38-.23.79-.35 1.28-.35.48 0 .93-.12 1.34-.36.42-.24.74-.58.99-1.01.25-.42.37-.89.37-1.37 0-.48-.12-.93-.36-1.34-.24-.41-.58-.74-.99-.99-.42-.25-.89-.37-1.37-.37-.48 0-.93.12-1.34.36-.42.24-.74.58-.99 1.01-.25.42-.37.89-.37 1.37 0 .48-.11.93-.32 1.34-.21.4-.5.7-.88.93-.38.23-.79.35-1.28.35.48 0 .93.12 1.34.36-.42.24-.74.58-.99 1.01-.25.42-.37.89-.37 1.37 0 .48-.11.93-.32 1.34-.21.4-.5.7-.88.93-.38.23-.79.35-1.28.35.48 0 .93-.12-1.34-.36z" /></svg>
+                                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.04 2.87c-5.06 0-9.17 4.1-9.17 9.17 0 1.54.4 3.01 1.15 4.34l-1.22 4.47a.97.97 0 001.32 1.32l4.47-1.22c1.33.74 2.8 1.15 4.34 1.15 5.07 0 9.17-4.11 9.17-9.17S17.11 2.87 12.04 2.87zm4.27 12.55l-.26.15a1.11 1.11 0 01-1.12.11 5.92 5.92 0 01-2.92-1.93 7.02 7.02 0 01-1.63-2.61.94.94 0 01.12-1.04l.15-.26c.21-.36.32-.8.32-1.25 0-.46-.11-.9-.32-1.26a.6.6 0 00-.31-.22c-.22-.09-.46-.14-.7-.14-.24 0-.48.05-.7.14a.6.6 0 00-.31.22c-.21.36-.32.8-.32 1.25 0 .46.11.9.32 1.25l.1.18c.24.42.36.9.36 1.4 0 .48-.12.92-.36 1.33-.24.42-.58.74-1.01.99-.42.25-.89.37-1.37.37-.48 0-.9-.12-1.28-.35-.38-.23-.67-.53-.88-.93-.21-.4-.32-.86-.32-1.34 0-.48.11-.93.32-1.34.21-.4.5-.7.88-.93.38-.23.79-.35 1.28-.35.48 0 .93-.12 1.34-.36.42-.24.74-.58.99-1.01.25-.42.37-.89.37-1.37 0-.48-.12-.93-.36-1.34-.24-.41-.58-.74-.99-.99-.42-.25-.89-.37-1.37-.37-.48 0-.93.12-1.34.36-.42.24-.74.58-.99 1.01-.25.42-.37.89-.37 1.37 0 .48-.11.93-.32 1.34-.21.4-.5.7-.88.93-.38.23-.79.35-1.28.35.48 0 .93-.12-1.34-.36z" /></svg>
                                             WhatsApp
                                         </a>
                                         <button onClick={() => handleCopy(job)} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-teal-600 transition text-sm flex items-center justify-center" title="Copy formatted message">
