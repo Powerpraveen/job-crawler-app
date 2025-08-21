@@ -12,6 +12,8 @@ import { createPortal } from 'react-dom';
 const parseDate = (dateString) => {
     if (!dateString) return null;
     const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+    
+    // Pattern 1: dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy
     let parts = dateString.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
     if (parts) {
         const day = parseInt(parts[1], 10);
@@ -21,6 +23,8 @@ const parseDate = (dateString) => {
         const date = new Date(Date.UTC(year, month, day));
         if (!isNaN(date.getTime())) return date;
     }
+    
+    // Pattern 2: Month dd, yyyy or dd Month yyyy
     parts = dateString.replace(/, /g, ' ').match(/(?:(\d{1,2}) )?([a-z]{3,}) (\d{1,2})?(?:, )?(\d{4})/i);
     if (parts) {
         const monthStr = parts[2]?.substring(0, 3)?.toLowerCase();
@@ -32,6 +36,17 @@ const parseDate = (dateString) => {
             if (!isNaN(date.getTime())) return date;
         }
     }
+    
+    // Pattern 3: yyyy-mm-dd
+    parts = dateString.match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+    if (parts) {
+        const year = parseInt(parts[1], 10);
+        const month = parseInt(parts[2], 10) - 1;
+        const day = parseInt(parts[3], 10);
+        const date = new Date(Date.UTC(year, month, day));
+        if (!isNaN(date.getTime())) return date;
+    }
+    
     const date = new Date(dateString);
     if (!isNaN(date.getTime())) return date;
     return null;
@@ -83,10 +98,20 @@ const crawlerReducer = (state, action) => {
                 ...state,
                 page: action.payload,
             };
+        case 'SET_URL':
+            return {
+                ...state,
+                url: action.payload,
+            };
         case 'SET_FILTER_DATE':
             return {
                 ...state,
                 filterDate: action.payload,
+            };
+        case 'TOGGLE_SIX_MONTHS_FILTER':
+            return {
+                ...state,
+                showNextSixMonths: action.payload,
             };
         default:
             return state;
@@ -105,6 +130,7 @@ const useJobCrawler = () => {
         error: '',
         page: 1,
         filterDate: '',
+        showNextSixMonths: false,
     });
 
     /**
@@ -238,11 +264,13 @@ const useJobCrawler = () => {
         }
     };
 
-    const setUrl = (newUrl) => dispatch({ type: 'UPDATE_STATUS', payload: newUrl });
+    // Corrected action dispatch for setUrl
+    const setUrl = (newUrl) => dispatch({ type: 'SET_URL', payload: newUrl });
     const setFilterDate = (newDate) => dispatch({ type: 'SET_FILTER_DATE', payload: newDate });
     const setPage = (newPage) => dispatch({ type: 'SET_PAGE', payload: newPage });
+    const toggleSixMonths = (checked) => dispatch({ type: 'TOGGLE_SIX_MONTHS_FILTER', payload: checked });
 
-    return { ...state, setUrl, setFilterDate, setPage, handleFetchJobs };
+    return { ...state, setUrl, setFilterDate, setPage, handleFetchJobs, toggleSixMonths };
 };
 
 // --- App Component ---
@@ -250,13 +278,22 @@ const useJobCrawler = () => {
 const JOBS_PER_PAGE = 10;
 
 export default function App() {
-    const { jobs, isLoading, status, error, page, url, filterDate, setUrl, setFilterDate, setPage, handleFetchJobs } = useJobCrawler();
+    const { jobs, isLoading, status, error, page, url, filterDate, showNextSixMonths, setUrl, setFilterDate, setPage, handleFetchJobs, toggleSixMonths } = useJobCrawler();
     const [copiedJob, setCopiedJob] = useState(null);
 
-    // Filter jobs based on the selected date
-    const filteredJobs = filterDate
-        ? jobs.filter(job => job.lastDate <= new Date(filterDate))
-        : jobs;
+    // Apply filters based on user selection
+    const filteredJobs = jobs.filter(job => {
+        const deadline = job.lastDate;
+        if (filterDate) {
+            return deadline <= new Date(filterDate);
+        }
+        if (showNextSixMonths) {
+            const sixMonthsFromNow = new Date();
+            sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+            return deadline <= sixMonthsFromNow;
+        }
+        return true; // No filter applied
+    });
 
     const totalPages = Math.ceil(filteredJobs.length / JOBS_PER_PAGE);
     const jobsToShow = filteredJobs.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE);
@@ -357,15 +394,26 @@ export default function App() {
                         disabled={isLoading}
                     />
                     <div>
-                        <label htmlFor="filter-date" className="block text-sm font-medium text-gray-600 mb-1">Filter by Deadline (on or before)</label>
+                        <label htmlFor="filter-date" className="block text-sm font-medium text-gray-600 mb-1">Filter by Specific Deadline</label>
                         <input
                             id="filter-date"
                             type="date"
                             value={filterDate}
                             onChange={(e) => setFilterDate(e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                            disabled={isLoading || showNextSixMonths}
+                        />
+                    </div>
+                    <div className="sm:col-span-2 flex items-center mt-2">
+                        <input
+                            id="six-month-filter"
+                            type="checkbox"
+                            checked={showNextSixMonths}
+                            onChange={(e) => toggleSixMonths(e.target.checked)}
+                            className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500"
                             disabled={isLoading}
                         />
+                        <label htmlFor="six-month-filter" className="ml-2 text-sm font-medium text-gray-700">Show only jobs with deadline in the next 6 months</label>
                     </div>
                 </div>
                 <div className="flex justify-end mb-6">
@@ -403,7 +451,7 @@ export default function App() {
                                     </div>
                                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                                         <a href={getWhatsAppLink(job)} target="_blank" rel="noopener noreferrer" className="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-600 transition text-sm flex items-center justify-center" title="Share via WhatsApp">
-                                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.04 2.87c-5.06 0-9.17 4.1-9.17 9.17 0 1.54.4 3.01 1.15 4.34l-1.22 4.47a.97.97 0 001.32 1.32l4.47-1.22c1.33.74 2.8 1.15 4.34 1.15 5.07 0 9.17-4.11 9.17-9.17S17.11 2.87 12.04 2.87zm4.27 12.55l-.26.15a1.11 1.11 0 01-1.12.11 5.92 5.92 0 01-2.92-1.93 7.02 7.02 0 01-1.63-2.61.94.94 0 01.12-1.04l.15-.26c.21-.36.32-.8.32-1.25 0-.46-.11-.9-.32-1.26a.6.6 0 00-.31-.22c-.22-.09-.46-.14-.7-.14-.24 0-.48.05-.7.14a.6.6 0 00-.31.22c-.21.36-.32.8-.32 1.25 0 .46.11.9.32 1.25l.1.18c.24.42.36.9.36 1.4 0 .48-.12.92-.36 1.33-.24.42-.58.74-1.01.99-.42.25-.89.37-1.37.37-.48 0-.9-.12-1.28-.35-.38-.23-.67-.53-.88-.93-.21-.4-.32-.86-.32-1.34 0-.48.11-.93.32-1.34.21-.4.5-.7.88-.93.38-.23.79-.35 1.28-.35.48 0 .93-.12 1.34-.36.42-.24.74-.58.99-1.01.25-.42.37-.89.37-1.37 0-.48-.12-.93-.36-1.34-.24-.41-.58-.74-.99-.99-.42-.25-.89-.37-1.37-.37-.48 0-.93.12-1.34.36-.42.24-.74.58-.99 1.01-.25.42-.37.89-.37 1.37 0 .48.11.93.32 1.34.21.4.5.7.88.93.38.23.79.35 1.28.35.48 0 .93.12 1.34.36.42.24.74.58.99 1.01.25.42.37.89.37 1.37 0 .48-.11.93-.32 1.34-.21.4-.5.7-.88.93-.38.23-.79.35-1.28.35-.48 0-.93-.12-1.34-.36z" /></svg>
+                                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.04 2.87c-5.06 0-9.17 4.1-9.17 9.17 0 1.54.4 3.01 1.15 4.34l-1.22 4.47a.97.97 0 001.32 1.32l4.47-1.22c1.33.74 2.8 1.15 4.34 1.15 5.07 0 9.17-4.11 9.17-9.17S17.11 2.87 12.04 2.87zm4.27 12.55l-.26.15a1.11 1.11 0 01-1.12.11 5.92 5.92 0 01-2.92-1.93 7.02 7.02 0 01-1.63-2.61.94.94 0 01.12-1.04l.15-.26c.21-.36.32-.8.32-1.25 0-.46-.11-.9-.32-1.26a.6.6 0 00-.31-.22c-.22-.09-.46-.14-.7-.14-.24 0-.48.05-.7.14a.6.6 0 00-.31.22c-.21.36-.32.8-.32 1.25 0 .46.11.9.32 1.25l.1.18c.24.42.36.9.36 1.4 0 .48-.12.92-.36 1.33-.24.42-.58.74-1.01.99-.42.25-.89.37-1.37.37-.48 0-.9-.12-1.28-.35-.38-.23-.67-.53-.88-.93-.21-.4-.32-.86-.32-1.34 0-.48.11-.93.32-1.34.21-.4.5-.7.88-.93.38-.23.79-.35 1.28-.35.48 0 .93-.12 1.34-.36.42-.24.74-.58.99-1.01.25-.42.37-.89.37-1.37 0-.48-.12-.93-.36-1.34-.24-.41-.58-.74-.99-.99-.42-.25-.89-.37-1.37-.37-.48 0-.93.12-1.34.36-.42.24-.74.58-.99 1.01-.25.42-.37.89-.37 1.37 0 .48-.11.93-.32 1.34-.21.4-.5.7-.88.93-.38.23-.79.35-1.28.35.48 0 .93.12 1.34.36-.42.24-.74.58-.99 1.01-.25.42-.37.89-.37 1.37 0 .48-.11.93-.32 1.34-.21.4-.5.7-.88.93-.38.23-.79.35-1.28.35.48 0 .93-.12-1.34-.36z" /></svg>
                                             WhatsApp
                                         </a>
                                         <button onClick={() => handleCopy(job)} className="bg-teal-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-teal-600 transition text-sm flex items-center justify-center" title="Copy formatted message">
